@@ -46,6 +46,56 @@ def get_client_mouse_coordinates(screens_width_ratio, screens_height_ratio, serv
     return client_x_coordinate, client_y_coordinate
 
 
+def is_server_clicked(first_click_mouse_event, second_click_mouse_event):
+    if first_click_mouse_event['x_coordinate'] != second_click_mouse_event['x_coordinate']:
+        return False
+
+    if first_click_mouse_event['y_coordinate'] != second_click_mouse_event['y_coordinate']:
+        return False
+
+    if first_click_mouse_event['button'] != second_click_mouse_event['button']:
+        return False
+
+    return True
+
+
+def execute_mouse_click(x_coordinate, y_coordinate, button):
+    pyautogui.FAILSAFE = False
+    x_coordinate = x_coordinate
+    y_coordinate = y_coordinate
+    button = button
+    print(f'mouse click x coordinate {x_coordinate}')
+    print(f'mouse click y coordinate {y_coordinate}')
+    print(f'Button {button}')
+    pyautogui.click(x_coordinate, y_coordinate, button=button)
+
+
+def handle_mouse_clicks(socket_connection: socket.socket):
+    server_screen_width, server_screen_height = get_server_screen_size(socket_connection)
+    client_screen_width, client_screen_height = get_screen_size()
+    screens_width_ratio, screens_height_ratio = get_screens_ratio(client_screen_width, client_screen_height,
+                                                                  server_screen_width, server_screen_height)
+    while True:
+        first_click_mouse_event = receive_data(socket_connection)
+        first_click_mouse_event = pickle.loads(first_click_mouse_event)
+        second_click_mouse_event = receive_data(socket_connection)
+        second_click_mouse_event = pickle.loads(second_click_mouse_event)
+
+        if is_server_clicked(first_click_mouse_event, second_click_mouse_event):
+            server_mouse_click_x_coordinate = first_click_mouse_event['x_coordinate']
+            server_mouse_click_y_coordinate = first_click_mouse_event['y_coordinate']
+
+            client_mouse_click_x_coordinate, client_mouse_click_y_coordinate = get_client_mouse_coordinates(screens_width_ratio,
+                                                                                                            screens_height_ratio,
+                                                                                                            server_mouse_click_x_coordinate,
+                                                                                                            server_mouse_click_y_coordinate)
+            print(f'{client_mouse_click_x_coordinate},{client_mouse_click_y_coordinate}')
+            button = first_click_mouse_event['button'].split('.')
+            button = button[1]
+            #execute_mouse_click(mouse_click_data=first_click_mouse_event)
+            execute_mouse_click(client_mouse_click_x_coordinate, client_mouse_click_y_coordinate, button)
+
+
 def moving_mouse(socket_connection: socket.socket):
     pyautogui.FAILSAFE = False
 
@@ -84,6 +134,10 @@ def get_client_socket_connections_list(destination_ip, destination_port):
     mouse_movements_socket.connect((destination_ip, destination_port))
     socket_connections_list.append(mouse_movements_socket)
 
+    mouse_clicks_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    mouse_clicks_socket.connect((destination_ip, destination_port))
+    socket_connections_list.append(mouse_clicks_socket)
+
     return socket_connections_list
 
 
@@ -91,14 +145,19 @@ def handle_client_socket_connections(socket_connections_list):
     screen_socket = socket_connections_list[0]
     screen_thread = threading.Thread(target=send_screen_shot, args=(screen_socket,))
 
-    mouse_socket = socket_connections_list[1]
-    mouse_thread = threading.Thread(target=moving_mouse, args=(mouse_socket,))
+    mouse_movements_socket = socket_connections_list[1]
+    mouse_movements_thread = threading.Thread(target=moving_mouse, args=(mouse_movements_socket,))
+
+    mouse_clicks_socket = socket_connections_list[2]
+    mouse_clicks_thread = threading.Thread(target=handle_mouse_clicks, args=(mouse_clicks_socket,))
 
     screen_thread.start()
-    mouse_thread.start()
+    mouse_movements_thread.start()
+    mouse_clicks_thread.start()
 
     screen_thread.join()
-    mouse_thread.join()
+    mouse_movements_thread.join()
+    mouse_clicks_thread.join()
 
 
 connections_list = get_client_socket_connections_list('10.100.102.16', 50000)

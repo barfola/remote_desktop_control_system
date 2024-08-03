@@ -9,6 +9,8 @@ import pyautogui
 import pickle
 import time
 import threading
+from pynput.mouse import Listener
+
 
 SERVER_BINDING_IP = '0.0.0.0'
 SERVER_PORT = 50000
@@ -28,6 +30,33 @@ def setup_window_properties(window_name):
 
 def display_cv2_image(window_name, image):
     cv2.imshow(window_name, image)
+
+
+def send_mouse_click_data(socket_connection: socket.socket):
+    send_screen_size(socket_connection)
+
+    def on_click(x_coordinate, y_coordinate, button, pressed):
+        if pressed:
+            click_data = {'x_coordinate': x_coordinate,
+                          'y_coordinate': y_coordinate,
+                          'button': str(button)}
+            print(f'x : {x_coordinate}')
+            print(f'y : {y_coordinate}')
+            print(f'button : {button}')
+            mouse_click_binary_data = pickle.dumps(click_data)
+            send_data(socket_connection, mouse_click_binary_data)
+        else:
+            click_data = {'x_coordinate': x_coordinate,
+                          'y_coordinate': y_coordinate,
+                          'button': str(button)}
+            print(f'x : {x_coordinate}')
+            print(f'y : {y_coordinate}')
+            print(f'button : {button}')
+            mouse_click_binary_data = pickle.dumps(click_data)
+            send_data(socket_connection, mouse_click_binary_data)
+
+    with Listener(on_click=on_click) as listener:
+        listener.join()
 
 
 def send_screen_size(socket_connection: socket.socket):
@@ -85,23 +114,31 @@ def handle_client_connections(socket_connections_list):
     screen_thread = threading.Thread(target=display_client_screen, args=(screen_socket,))
 
     mouse_socket = socket_connections_list[1]
-    mouse_thread = threading.Thread(target=send_server_mouse_coordinates, args=(mouse_socket,))
+    mouse_movements_thread = threading.Thread(target=send_server_mouse_coordinates, args=(mouse_socket,))
+
+    mouse_clicks_socket = socket_connections_list[2]
+    mouse_clicks_thread = threading.Thread(target=send_mouse_click_data, args=(mouse_clicks_socket,))
 
     screen_thread.start()
-    mouse_thread.start()
+    mouse_movements_thread.start()
+    mouse_clicks_thread.start()
 
     screen_thread.join()
-    mouse_thread.join()
+    mouse_movements_thread.join()
+    mouse_clicks_thread.join()
 
 
 def get_sockets_connections_list(server_socket: socket.socket):
     socket_connections_list = []
 
-    screen_socket, client_address = server_socket.accept()
+    screen_socket, _ = server_socket.accept()
     socket_connections_list.append(screen_socket)
 
-    mouse_movements_socket, client_address = server_socket.accept()
+    mouse_movements_socket, _ = server_socket.accept()
     socket_connections_list.append(mouse_movements_socket)
+
+    mouse_clicks_socket, _ = server_socket.accept()
+    socket_connections_list.append(mouse_clicks_socket)
 
     return socket_connections_list
 
