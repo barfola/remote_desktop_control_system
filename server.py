@@ -59,6 +59,18 @@ def send_mouse_click_data(socket_connection: socket.socket):
         listener.join()
 
 
+def send_mouse_scrolls_data(socket_connection: socket.socket):
+    def on_scroll(x_coordinate, y_coordinate, x_difference, y_difference):
+        mouse_scroll_data_tuple = (x_difference, y_difference)
+        mouse_scroll_data_tuple_in_binary = pickle.dumps(mouse_scroll_data_tuple)
+        send_data(socket_connection, mouse_scroll_data_tuple_in_binary)
+
+        print(mouse_scroll_data_tuple)
+
+    with Listener(on_scroll=on_scroll) as listener:
+        listener.join()
+
+
 def send_keyboard_clicks(socket_connection: socket.socket):
     while True:
         keyboard_click_event = keyboard.read_event()
@@ -126,17 +138,22 @@ def handle_client_connections(socket_connections_list):
     mouse_clicks_socket = socket_connections_list[2]
     mouse_clicks_thread = threading.Thread(target=send_mouse_click_data, args=(mouse_clicks_socket,))
 
-    keyboard_clicks_socket = socket_connections_list[3]
+    mouse_scrolls_socket = socket_connections_list[3]
+    mouse_scrolls_thread = threading.Thread(target=send_mouse_scrolls_data, args=(mouse_scrolls_socket,))
+
+    keyboard_clicks_socket = socket_connections_list[4]
     keyboard_clicks_thread = threading.Thread(target=send_keyboard_clicks, args=(keyboard_clicks_socket,))
 
     screen_thread.start()
     mouse_movements_thread.start()
     mouse_clicks_thread.start()
+    mouse_scrolls_thread.start()
     keyboard_clicks_thread.start()
 
     screen_thread.join()
     mouse_movements_thread.join()
     mouse_clicks_thread.join()
+    mouse_scrolls_thread.join()
     keyboard_clicks_thread.join()
 
 
@@ -151,6 +168,9 @@ def get_sockets_connections_list(server_socket: socket.socket):
 
     mouse_clicks_socket, _ = server_socket.accept()
     socket_connections_list.append(mouse_clicks_socket)
+
+    mouse_scrolls_socket, _ = server_socket.accept()
+    socket_connections_list.append(mouse_scrolls_socket)
 
     keyboard_clicks_socket, _ = server_socket.accept()
     socket_connections_list.append(keyboard_clicks_socket)

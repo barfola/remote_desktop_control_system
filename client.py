@@ -7,6 +7,7 @@ import pickle
 from helper import get_screen_size, close_socket_connections, send_data, receive_data
 import threading
 import keyboard
+from pynput.mouse import Controller
 
 
 def get_screenshot():
@@ -117,6 +118,17 @@ def handle_keyboard_clicks(socket_connection: socket.socket):
             release_keyboard_button(keyboard_click_event)
 
 
+def mouse_scrolling(socket_connection: socket.socket):
+    mouse_controller = Controller()
+    while True:
+        mouse_scroll_data_tuple_in_binary = receive_data(socket_connection)
+        mouse_scroll_data_tuple = pickle.loads(mouse_scroll_data_tuple_in_binary)
+        x_difference = mouse_scroll_data_tuple[0]
+        y_difference = mouse_scroll_data_tuple[1]
+        print(f'{x_difference},{y_difference}')
+        mouse_controller.scroll(x_difference, y_difference)
+
+
 def moving_mouse(socket_connection: socket.socket):
     pyautogui.FAILSAFE = False
 
@@ -159,6 +171,10 @@ def get_client_socket_connections_list(destination_ip, destination_port):
     mouse_clicks_socket.connect((destination_ip, destination_port))
     socket_connections_list.append(mouse_clicks_socket)
 
+    mouse_scrolls_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    mouse_scrolls_socket.connect((destination_ip, destination_port))
+    socket_connections_list.append(mouse_scrolls_socket)
+
     keyboard_clicks_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     keyboard_clicks_socket.connect((destination_ip, destination_port))
     socket_connections_list.append(keyboard_clicks_socket)
@@ -176,17 +192,22 @@ def handle_client_connections(socket_connections_list):
     mouse_clicks_socket = socket_connections_list[2]
     mouse_clicks_thread = threading.Thread(target=handle_mouse_clicks, args=(mouse_clicks_socket,))
 
-    keyboard_clicks_socket = socket_connections_list[3]
+    mouse_scrolls_socket = socket_connections_list[3]
+    mouse_scrolls_thread = threading.Thread(target=mouse_scrolling, args=(mouse_scrolls_socket,))
+
+    keyboard_clicks_socket = socket_connections_list[4]
     keyboard_clicks_thread = threading.Thread(target=handle_keyboard_clicks, args=(keyboard_clicks_socket,))
 
     screen_thread.start()
     mouse_movements_thread.start()
     mouse_clicks_thread.start()
+    mouse_scrolls_thread.start()
     keyboard_clicks_thread.start()
 
     screen_thread.join()
     mouse_movements_thread.join()
     mouse_clicks_thread.join()
+    mouse_scrolls_thread.join()
     keyboard_clicks_thread.join()
 
 
