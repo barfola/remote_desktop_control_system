@@ -10,7 +10,7 @@ import pickle
 import time
 import threading
 from pynput.mouse import Listener
-
+import keyboard
 
 SERVER_BINDING_IP = '0.0.0.0'
 SERVER_PORT = 50000
@@ -57,6 +57,13 @@ def send_mouse_click_data(socket_connection: socket.socket):
 
     with Listener(on_click=on_click) as listener:
         listener.join()
+
+
+def send_keyboard_clicks(socket_connection: socket.socket):
+    while True:
+        keyboard_click_event = keyboard.read_event()
+        keyboard_click_event_in_binary = pickle.dumps(keyboard_click_event)
+        send_data(socket_connection, keyboard_click_event_in_binary)
 
 
 def send_screen_size(socket_connection: socket.socket):
@@ -119,13 +126,18 @@ def handle_client_connections(socket_connections_list):
     mouse_clicks_socket = socket_connections_list[2]
     mouse_clicks_thread = threading.Thread(target=send_mouse_click_data, args=(mouse_clicks_socket,))
 
+    keyboard_clicks_socket = socket_connections_list[3]
+    keyboard_clicks_thread = threading.Thread(target=send_keyboard_clicks, args=(keyboard_clicks_socket,))
+
     screen_thread.start()
     mouse_movements_thread.start()
     mouse_clicks_thread.start()
+    keyboard_clicks_thread.start()
 
     screen_thread.join()
     mouse_movements_thread.join()
     mouse_clicks_thread.join()
+    keyboard_clicks_thread.join()
 
 
 def get_sockets_connections_list(server_socket: socket.socket):
@@ -139,6 +151,9 @@ def get_sockets_connections_list(server_socket: socket.socket):
 
     mouse_clicks_socket, _ = server_socket.accept()
     socket_connections_list.append(mouse_clicks_socket)
+
+    keyboard_clicks_socket, _ = server_socket.accept()
+    socket_connections_list.append(keyboard_clicks_socket)
 
     return socket_connections_list
 

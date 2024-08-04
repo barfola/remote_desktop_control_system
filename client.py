@@ -6,6 +6,7 @@ import pyautogui
 import pickle
 from helper import get_screen_size, close_socket_connections, send_data, receive_data
 import threading
+import keyboard
 
 
 def get_screenshot():
@@ -96,6 +97,26 @@ def handle_mouse_clicks(socket_connection: socket.socket):
             execute_mouse_click(client_mouse_click_x_coordinate, client_mouse_click_y_coordinate, button)
 
 
+def click_keyboard_button(keyboard_click_event):
+    keyboard_key = keyboard_click_event.name
+    keyboard.press(keyboard_key)
+
+
+def release_keyboard_button(keyboard_click_event):
+    keyboard_key = keyboard_click_event.name
+    keyboard.release(keyboard_key)
+
+
+def handle_keyboard_clicks(socket_connection: socket.socket):
+    while True:
+        keyboard_click_event_in_binary = receive_data(socket_connection)
+        keyboard_click_event = pickle.loads(keyboard_click_event_in_binary)
+        if keyboard_click_event.event_type == 'down':
+            click_keyboard_button(keyboard_click_event)
+        else:
+            release_keyboard_button(keyboard_click_event)
+
+
 def moving_mouse(socket_connection: socket.socket):
     pyautogui.FAILSAFE = False
 
@@ -138,10 +159,14 @@ def get_client_socket_connections_list(destination_ip, destination_port):
     mouse_clicks_socket.connect((destination_ip, destination_port))
     socket_connections_list.append(mouse_clicks_socket)
 
+    keyboard_clicks_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    keyboard_clicks_socket.connect((destination_ip, destination_port))
+    socket_connections_list.append(keyboard_clicks_socket)
+
     return socket_connections_list
 
 
-def handle_client_socket_connections(socket_connections_list):
+def handle_client_connections(socket_connections_list):
     screen_socket = socket_connections_list[0]
     screen_thread = threading.Thread(target=send_screen_shot, args=(screen_socket,))
 
@@ -151,17 +176,22 @@ def handle_client_socket_connections(socket_connections_list):
     mouse_clicks_socket = socket_connections_list[2]
     mouse_clicks_thread = threading.Thread(target=handle_mouse_clicks, args=(mouse_clicks_socket,))
 
+    keyboard_clicks_socket = socket_connections_list[3]
+    keyboard_clicks_thread = threading.Thread(target=handle_keyboard_clicks, args=(keyboard_clicks_socket,))
+
     screen_thread.start()
     mouse_movements_thread.start()
     mouse_clicks_thread.start()
+    keyboard_clicks_thread.start()
 
     screen_thread.join()
     mouse_movements_thread.join()
     mouse_clicks_thread.join()
+    keyboard_clicks_thread.join()
 
 
 connections_list = get_client_socket_connections_list('10.100.102.16', 50000)
-handle_client_socket_connections(connections_list)
+handle_client_connections(connections_list)
 close_socket_connections(connections_list)
 
 # my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
