@@ -1,6 +1,6 @@
 # THE CLIENT SIDE WILL RUN ON THE CONTROLLED PC
+# THE CLIENT SIDE WILL RUN ON THE CONTROLLED PC
 import socket
-from io import BytesIO
 from PIL import ImageGrab
 import pyautogui
 import pickle
@@ -8,6 +8,24 @@ from helper import get_screen_size, close_socket_connections, send_data, receive
 import threading
 import keyboard
 from pynput.mouse import Controller
+import numpy as np
+import cv2
+
+
+def convert_pil_image_to_cv2(pil_screen_image):
+    cv2_client_screen_image = cv2.cvtColor(np.array(pil_screen_image), cv2.COLOR_RGB2BGR)
+    return cv2_client_screen_image
+
+
+def get_converted_cv2_image_to_binary(cv2_image):
+    return pickle.dumps(cv2_image)
+
+
+def is_screens_equal(current_screen, prior_screen):
+    if prior_screen is None:
+        return False
+
+    return np.array_equal(current_screen, prior_screen)
 
 
 def get_screenshot():
@@ -16,15 +34,21 @@ def get_screenshot():
 
 
 def send_screen_shot(client_socket: socket.socket):
-    try:
-        while True:
-            screenshot = get_screenshot()
-            img_buffer = BytesIO()
-            screenshot.save(img_buffer, format='PNG')
-            screenshot_in_binary = img_buffer.getvalue()
-            send_data(client_socket, screenshot_in_binary, is_text=False)
-    finally:
-        client_socket.close()
+    prior_screen = None
+    client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 200000)
+
+    while True:
+        screenshot = get_screenshot()
+        cv2_screenshot = convert_pil_image_to_cv2(pil_screen_image=screenshot)
+        cv2_binary_screenshot = get_converted_cv2_image_to_binary(cv2_screenshot)
+
+        if not is_screens_equal(cv2_binary_screenshot, prior_screen):
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+            _, encoded_screenshot_data = cv2.imencode('.jpg', cv2_screenshot, encode_param)
+            binary_screenshot_data = np.array(encoded_screenshot_data).tobytes()
+            send_data(client_socket, binary_screenshot_data)
+
+        prior_screen = cv2_binary_screenshot
 
 
 def get_server_screen_size(socket_connection: socket.socket):
@@ -61,7 +85,7 @@ def is_server_clicked(first_click_mouse_event, second_click_mouse_event):
     return True
 
 
-def execute_mouse_click(x_coordinate, y_coordinate, button):
+def click_mouse(x_coordinate, y_coordinate, button):
     pyautogui.FAILSAFE = False
     x_coordinate = x_coordinate
     y_coordinate = y_coordinate
@@ -69,7 +93,18 @@ def execute_mouse_click(x_coordinate, y_coordinate, button):
     print(f'mouse click x coordinate {x_coordinate}')
     print(f'mouse click y coordinate {y_coordinate}')
     print(f'Button {button}')
-    pyautogui.click(x_coordinate, y_coordinate, button=button)
+    pyautogui.mouseDown(x=x_coordinate, y=y_coordinate, button=button)
+
+
+def release_mouse(x_coordinate, y_coordinate, button):
+    pyautogui.FAILSAFE = False
+    x_coordinate = x_coordinate
+    y_coordinate = y_coordinate
+    button = button
+    print(f'mouse click x coordinate {x_coordinate}')
+    print(f'mouse click y coordinate {y_coordinate}')
+    print(f'Button {button}')
+    pyautogui.mouseUp(x=x_coordinate, y=y_coordinate, button=button)
 
 
 def handle_mouse_clicks(socket_connection: socket.socket):
@@ -78,24 +113,26 @@ def handle_mouse_clicks(socket_connection: socket.socket):
     screens_width_ratio, screens_height_ratio = get_screens_ratio(client_screen_width, client_screen_height,
                                                                   server_screen_width, server_screen_height)
     while True:
-        first_click_mouse_event = receive_data(socket_connection)
-        first_click_mouse_event = pickle.loads(first_click_mouse_event)
-        second_click_mouse_event = receive_data(socket_connection)
-        second_click_mouse_event = pickle.loads(second_click_mouse_event)
+        print('in the handle mouse clicks while loop ')
+        mouse_click_mouse_event = receive_data(socket_connection)
+        mouse_click_mouse_event = pickle.loads(mouse_click_mouse_event)
 
-        if is_server_clicked(first_click_mouse_event, second_click_mouse_event):
-            server_mouse_click_x_coordinate = first_click_mouse_event['x_coordinate']
-            server_mouse_click_y_coordinate = first_click_mouse_event['y_coordinate']
+        server_mouse_click_x_coordinate = mouse_click_mouse_event['x_coordinate']
+        server_mouse_click_y_coordinate = mouse_click_mouse_event['y_coordinate']
 
-            client_mouse_click_x_coordinate, client_mouse_click_y_coordinate = get_client_mouse_coordinates(screens_width_ratio,
-                                                                                                            screens_height_ratio,
-                                                                                                            server_mouse_click_x_coordinate,
-                                                                                                            server_mouse_click_y_coordinate)
-            print(f'{client_mouse_click_x_coordinate},{client_mouse_click_y_coordinate}')
-            button = first_click_mouse_event['button'].split('.')
-            button = button[1]
-            #execute_mouse_click(mouse_click_data=first_click_mouse_event)
-            execute_mouse_click(client_mouse_click_x_coordinate, client_mouse_click_y_coordinate, button)
+        server_mouse_click_button = mouse_click_mouse_event['button'].split('.')
+        server_mouse_click_button = server_mouse_click_button[1]
+
+        client_mouse_click_x_coordinate, client_mouse_click_y_coordinate = get_client_mouse_coordinates(
+            screens_width_ratio,
+            screens_height_ratio,
+            server_mouse_click_x_coordinate,
+            server_mouse_click_y_coordinate)
+
+        if mouse_click_mouse_event['pressed']:
+            click_mouse(client_mouse_click_x_coordinate, client_mouse_click_y_coordinate, server_mouse_click_button)
+        else:
+            release_mouse(client_mouse_click_x_coordinate, client_mouse_click_y_coordinate, server_mouse_click_button)
 
 
 def click_keyboard_button(keyboard_click_event):
@@ -112,6 +149,7 @@ def handle_keyboard_clicks(socket_connection: socket.socket):
     while True:
         keyboard_click_event_in_binary = receive_data(socket_connection)
         keyboard_click_event = pickle.loads(keyboard_click_event_in_binary)
+
         if keyboard_click_event.event_type == 'down':
             click_keyboard_button(keyboard_click_event)
         else:
@@ -211,19 +249,35 @@ def handle_client_connections(socket_connections_list):
     keyboard_clicks_thread.join()
 
 
+
 connections_list = get_client_socket_connections_list('10.100.102.16', 50000)
 handle_client_connections(connections_list)
 close_socket_connections(connections_list)
 
-# my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# my_socket.connect(('10.100.102.16', 50000))
-# send_screen_shot(my_socket)
-# screen_thread = threading.Thread(target=send_screen_shot, args=(my_socket,))
-# receive_server_mouse_coordinates(socket_connection=my_socket)
 
-# mouse_thread = threading.Thread(target=receive_server_mouse_coordinates, args=(my_socket,))
-# screen_thread.start()
-# mouse_thread.start()
 
-# screen_thread.join()
-# mouse_thread.join()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
